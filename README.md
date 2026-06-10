@@ -19,7 +19,7 @@ Shep gives each repo a dedicated workspace for terminals, AI coding agents, comm
 ## What It Does
 
 - **Project workspaces** for repos, tasks, agents, and terminal tabs
-- **Assistant launcher** for Codex CLI, Claude Code, and Gemini CLI
+- **Assistant launcher** for Codex CLI, Claude Code, and Antigravity CLI
 - **Git-aware project views** including discovered worktrees
 - **Autostart tasks** for dev servers, watchers, and recurring commands
 - **Status indicators** so crashed or noisy sessions are easy to spot
@@ -107,7 +107,9 @@ Supported today:
 
 - Codex CLI
 - Claude Code
-- Gemini CLI
+- Antigravity CLI (`agy`)
+
+Gemini CLI was removed from the launcher after Google deprecated it in favor of Antigravity CLI (consumer requests stop June 18, 2026). If you still use it (e.g. on an enterprise license), run `gemini` from any Shep terminal — historical Gemini usage stays visible in the usage panel.
 
 ## Build From Source
 
@@ -191,7 +193,12 @@ For tester reports, include:
 
 ## Releases
 
-Release steps are documented in [docs/RELEASING.md](docs/RELEASING.md).
+Releases are built locally on macOS and published as a `.dmg` via GitHub Releases:
+
+1. `./scripts/bump-version.sh X.Y.Z` — updates `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`, then commits the bump
+2. `./scripts/release-build.sh` — builds, signs, notarizes, and generates `latest.json`
+3. Smoke test the DMG, then `git tag vX.Y.Z && git push origin main vX.Y.Z`
+4. `gh release create` with the artifacts and release notes
 
 ## License
 
