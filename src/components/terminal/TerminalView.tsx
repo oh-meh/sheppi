@@ -13,6 +13,7 @@ import {
   unregisterTerminal,
 } from "../../hooks/usePty";
 import { TERMINAL_LINE_HEIGHT, buildCSSFontFamily } from "../../lib/terminalConfig";
+import { preserveTerminalViewport } from "../../lib/terminalViewport";
 import { createTerminalTheme } from "./terminalTheme";
 import { useThemeStore } from "../../stores/useThemeStore";
 import { notifyAgent } from "../../lib/notifications";
@@ -121,17 +122,25 @@ export default function TerminalView({
     const cached = terminalCache.get(ptyId);
     if (!cached) return;
 
-    cached.fitAddon.fit();
-    const size = { cols: cached.term.cols, rows: cached.term.rows };
+    const proposedSize = cached.fitAddon.proposeDimensions();
+    if (!proposedSize) return;
+
+    const size = { cols: proposedSize.cols, rows: proposedSize.rows };
     const lastSize = lastSizeRef.current;
 
     if (
       lastSize &&
       lastSize.cols === size.cols &&
-      lastSize.rows === size.rows
+      lastSize.rows === size.rows &&
+      cached.term.cols === size.cols &&
+      cached.term.rows === size.rows
     ) {
       return;
     }
+
+    preserveTerminalViewport(cached.term, () => {
+      cached.fitAddon.fit();
+    });
 
     lastSizeRef.current = size;
     await resizePty(ptyId, size.cols, size.rows).catch((error) => {

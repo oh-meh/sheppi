@@ -5,6 +5,7 @@ import type { TerminalSettings } from "../../lib/types";
 import { resizePty } from "../../lib/tauri";
 import { terminalCache } from "./TerminalView";
 import { buildCSSFontFamily } from "../../lib/terminalConfig";
+import { preserveTerminalViewport } from "../../lib/terminalViewport";
 
 // Utility to make hex colors partially transparent
 function withAlpha(hex: string, alpha: number): string {
@@ -83,7 +84,9 @@ export function applyTerminalSettings(settings: TerminalSettings): void {
     // and cached from scratch. Without this, xterm keeps rendering glyphs
     // with the *old* font's metrics, causing clipping and misalignment.
     entry.rendererAddon?.clearTextureAtlas?.();
-    entry.fitAddon.fit();
+    preserveTerminalViewport(entry.term, () => {
+      entry.fitAddon.fit();
+    });
     entry.term.refresh(0, entry.term.rows - 1);
     resizePty(ptyId, entry.term.cols, entry.term.rows).catch((error) => {
       if (import.meta.env.DEV) {
