@@ -994,6 +994,62 @@ select {
   outline-offset: 2px;
 }
 
+.sidebar-section {
+  padding-top: 6px;
+}
+
+.sidebar-section__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 18px;
+}
+
+.sidebar-section__overflow {
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.65;
+}
+
+.agent-session-row {
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.agent-session-row__text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.2;
+}
+
+.agent-session-row__branch {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-session-row__project {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-session-row__dot {
+  margin-left: 2px;
+}
+
 /* Sidebar footer buttons (Settings, Usage, Ports) — visually distinct from tabs */
 .sidebar-footer-btn {
   display: flex;

@@ -290,7 +290,7 @@ export default function ProjectList({
   };
 
   return (
-    <div className="flex flex-col gap-0.5 px-2 pb-2">
+    <div className="flex flex-col gap-0.5 pb-2">
       {sortedGroups.map((group) => {
         const groupRepos = groupedRepos.get(group.id) ?? [];
         const isGroupExpanded = expandedGroups.has(group.id);

@@ -389,6 +389,20 @@ export default function AppShell() {
     }
   }, [setActiveTab, activeRepoPath]);
 
+  const handleSelectSidebarProjectTab = useCallback(async (repoPath: string, tabId: string) => {
+    useUIStore.getState().deactivateAllOverlays();
+    if (repoPath !== activeRepoPath) {
+      await handleSelectRepo(repoPath);
+    }
+
+    const store = useTerminalStore.getState();
+    store.setActiveTab(tabId);
+    const tab = store.projectState[repoPath]?.tabs.find((entry) => entry.id === tabId);
+    if (tab && (tab.kind === "terminal" || tab.kind === "assistant")) {
+      store.clearTabBell(tab.ptyId);
+    }
+  }, [activeRepoPath, handleSelectRepo]);
+
   const handleCloseTab = useCallback((tabId: string) => {
     const store = useTerminalStore.getState();
     const path = store.activeProjectPath;
@@ -645,6 +659,7 @@ export default function AppShell() {
             onNewAssistant={handleNewAssistant}
             onOpenInEditor={handleOpenInEditor}
             onSelectTab={handleSelectSidebarTab}
+            onSelectProjectTab={handleSelectSidebarProjectTab}
             onCloseTab={handleCloseTab}
             onNewShell={handleNewShell}
             onRenameGroup={handleRenameGroup}
