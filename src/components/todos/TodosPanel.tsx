@@ -22,7 +22,9 @@ interface Column {
 }
 
 function isDoneColumn(title: string): boolean {
-  return /^(done|complete|completed|shipped|finished)\b/i.test(title.trim());
+  // Strip leading emoji/symbols so "✅ Done" matches like "Done".
+  const plain = title.replace(/^[^\p{L}\p{N}]+/u, "").trim();
+  return /^(done|complete|completed|shipped|finished)\b/i.test(plain);
 }
 
 function pushItem(cards: Card[], item: TodoItem) {

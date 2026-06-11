@@ -225,7 +225,7 @@ pub fn add_todo(
             if !path.exists() {
                 let initial = if kanban {
                     format!(
-                        "# To-dos\n\n## Backlog\n\n- [ ] {text}\n\n## In Progress\n\n## Done\n"
+                        "# To-dos\n\n## 📋 Backlog\n\n- [ ] {text}\n\n## 🚧 In Progress\n\n## ✅ Done\n"
                     )
                 } else {
                     format!("# TODO\n\n- [ ] {text}\n")
@@ -674,14 +674,14 @@ mod tests {
         let path = dir.join("TODO.md");
         assert_eq!(
             fs::read_to_string(&path).unwrap(),
-            "# To-dos\n\n## Backlog\n\n- [ ] first task\n\n## In Progress\n\n## Done\n"
+            "# To-dos\n\n## 📋 Backlog\n\n- [ ] first task\n\n## 🚧 In Progress\n\n## ✅ Done\n"
         );
 
-        // "## In Progress" is line 6: add into the empty column.
+        // "## 🚧 In Progress" is line 6: add into the empty column.
         add_todo(&repo, Some(&path.to_string_lossy()), "started", Some(6), false).unwrap();
         assert_eq!(
             fs::read_to_string(&path).unwrap(),
-            "# To-dos\n\n## Backlog\n\n- [ ] first task\n\n## In Progress\n\n- [ ] started\n\n## Done\n"
+            "# To-dos\n\n## 📋 Backlog\n\n- [ ] first task\n\n## 🚧 In Progress\n\n- [ ] started\n\n## ✅ Done\n"
         );
         let _ = fs::remove_dir_all(&dir);
     }

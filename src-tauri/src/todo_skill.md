@@ -13,8 +13,11 @@ is no other task database.
 ## Format
 
 - `##` headings are board columns. The standard columns, in order:
-  `## Backlog`, `## In Progress`, `## Done`. Keep existing column names if the
-  file already uses different ones.
+  `## 📋 Backlog`, `## 🚧 In Progress`, `## ✅ Done`.
+- The user may have customized the board — different column names, emoji,
+  or extra columns (e.g. `## ⛔ Blocked`, `## 🔍 In Review`). Always mirror
+  the file's existing structure; never rename columns or impose the standard
+  set on a file that already has its own.
 - Each card is one GFM task-list line: `- [ ] Short imperative title`.
 - Checkbox state must agree with the column: cards in Done are `- [x]`,
   cards everywhere else are `- [ ]`.
@@ -41,3 +44,6 @@ is no other task database.
    never reorder, reformat, or rewrite other parts of the file.
 5. If `TODO.md` doesn't exist and you need it, create it with the three
    standard columns and a `# To-dos` title.
+6. If the user asks to reshape the board (new columns, renames, reordering),
+   do it — it's their board. Just keep the invariants: `##` headings as
+   columns, one `- [ ]` line per card, checked only in the done-like column.
