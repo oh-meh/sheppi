@@ -389,6 +389,79 @@ select {
   background: var(--status-attention);
 }
 
+.activity-indicator {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  margin-left: auto;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--overlay) 25%, transparent);
+}
+
+.activity-indicator--idle {
+  background: color-mix(in srgb, var(--overlay) 22%, transparent);
+}
+
+.activity-indicator--running {
+  background: color-mix(in srgb, var(--status-running) 62%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-running) 16%, transparent);
+}
+
+.activity-indicator--active {
+  background: var(--status-added);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--status-added) 38%, transparent);
+  animation: activity-indicator-pulse 1.25s ease-in-out infinite;
+}
+
+.activity-indicator--active::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 1px solid color-mix(in srgb, var(--status-added) 48%, transparent);
+  border-radius: 50%;
+  animation: activity-indicator-ring 1.25s ease-out infinite;
+}
+
+.activity-indicator--attention {
+  background: var(--status-attention);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-attention) 18%, transparent);
+}
+
+.activity-indicator--failed {
+  background: var(--status-crashed);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-crashed) 16%, transparent);
+}
+
+@keyframes activity-indicator-pulse {
+  0%, 100% {
+    opacity: 0.72;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes activity-indicator-ring {
+  0% {
+    opacity: 0.8;
+    transform: scale(0.7);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-indicator--active,
+  .activity-indicator--active::after {
+    animation: none;
+  }
+}
+
 /* Option card (form pickers, selectable cards) */
 .option-card {
   display: flex;
@@ -992,6 +1065,98 @@ select {
 .section-toggle:focus-visible {
   outline: 2px solid rgba(122, 162, 247, 0.75);
   outline-offset: 2px;
+}
+
+.sidebar-section {
+  padding-top: 6px;
+}
+
+/* Hairline divider between adjacent top-level sections (e.g. Agent
+   Sessions → Projects). Only applies when both are rendered. */
+.sidebar-section + .sidebar-section {
+  margin-top: 6px;
+  border-top: 1px solid var(--glass-border);
+  padding-top: 10px;
+}
+
+/* Top-level section headers are typographic labels, distinct from the
+   icon-led item rows nested beneath them. */
+.sidebar-section-toggle {
+  min-height: 24px;
+  padding: 3px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.sidebar-section-toggle__label {
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+}
+
+.sidebar-section-toggle__chevron {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.45;
+  transition: opacity 120ms ease;
+}
+
+.sidebar-section-toggle:hover .sidebar-section-toggle__chevron {
+  opacity: 0.9;
+}
+
+.sidebar-section__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-section__overflow {
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.65;
+}
+
+.agent-session-row {
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.agent-session-row__text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.2;
+}
+
+.agent-session-row__branch {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-session-row__project {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-session-row__indicator {
+  margin-left: 2px;
 }
 
 /* Sidebar footer buttons (Settings, Usage, Ports) — visually distinct from tabs */
@@ -3251,4 +3416,129 @@ select {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: monospace;
+}
+
+/* ── Todos panel ───────────────────────────────────────────────────── */
+
+.todos-panel__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 0;
+}
+
+.todos-panel__file + .todos-panel__file {
+  margin-top: 16px;
+}
+
+.todos-panel__file-label {
+  padding: 2px 10px 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.todos-panel__section {
+  padding: 12px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.todos-panel__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-body);
+  line-height: 1.45;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.todos-panel__item:hover {
+  background: color-mix(in srgb, var(--overlay) 4%, transparent);
+  color: var(--text-primary);
+}
+
+.todos-panel__item-box {
+  flex-shrink: 0;
+  display: inline-flex;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+.todos-panel__item--done {
+  color: var(--text-muted);
+}
+
+.todos-panel__item--done .todos-panel__item-text {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.todos-panel__item--done .todos-panel__item-box {
+  color: var(--accent, var(--text-secondary));
+}
+
+.todos-panel__empty {
+  padding: 8px 10px;
+  color: var(--text-muted);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  max-width: 480px;
+}
+
+.todos-panel__empty code {
+  font-family: monospace;
+  color: var(--text-secondary);
+}
+
+.todos-panel__add {
+  display: flex;
+  gap: 8px;
+  padding: 12px 0 14px;
+  border-top: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+
+.todos-panel__add-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: color-mix(in srgb, var(--overlay) 3%, transparent);
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  outline: none;
+}
+
+.todos-panel__add-input:focus {
+  border-color: var(--border-hover);
+}
+
+.todos-panel__add-input::placeholder {
+  color: var(--text-muted);
+}
+
+.todos-panel__add-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-hover);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.todos-panel__add-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }

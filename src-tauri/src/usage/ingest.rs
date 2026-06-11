@@ -32,6 +32,14 @@ pub fn ingest_all(conn: &Connection) -> bool {
         }
         Err(e) => eprintln!("Gemini ingest error: {e}"),
     }
+    match ingest_antigravity(conn, MAX_FILES_PER_CYCLE) {
+        Ok(done) => {
+            if !done {
+                all_done = false;
+            }
+        }
+        Err(e) => eprintln!("Antigravity ingest error: {e}"),
+    }
     match ingest_codex(conn, MAX_FILES_PER_CYCLE) {
         Ok(done) => {
             if !done {
@@ -345,6 +353,274 @@ fn ingest_gemini_file(conn: &Connection, path: &Path) -> Result<(), String> {
 
     upsert_cursor(conn, &path_str, "gemini", file_size, file_size, mtime)?;
     Ok(())
+}
+
+// ── Antigravity ───────────────────────────────────────────
+
+/// Returns Ok(true) if fully caught up, Ok(false) if more files remain.
+fn ingest_antigravity(conn: &Connection, budget: usize) -> Result<bool, String> {
+    let brain_dir = home_join(".gemini/antigravity-cli/brain")?;
+    if !brain_dir.exists() {
+        return Ok(true);
+    }
+
+    let mut by_session: std::collections::BTreeMap<String, PathBuf> = std::collections::BTreeMap::new();
+    for path in walk_files(&brain_dir) {
+        let file_name = path.file_name().and_then(|n| n.to_str());
+        if file_name != Some("transcript_full.jsonl") && file_name != Some("transcript.jsonl") {
+            continue;
+        }
+        let Some(session_id) = antigravity_session_id(&path) else {
+            continue;
+        };
+        let is_full = file_name == Some("transcript_full.jsonl");
+        let replace = by_session
+            .get(&session_id)
+            .map(|existing| {
+                existing.file_name().and_then(|n| n.to_str()) != Some("transcript_full.jsonl") && is_full
+            })
+            .unwrap_or(true);
+        if replace {
+            by_session.insert(session_id, path);
+        }
+    }
+    let transcript_files: Vec<_> = by_session.into_values().collect();
+
+    conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+
+    let mut processed = 0;
+    let mut skipped_remaining = false;
+    let history = read_antigravity_history();
+
+    for path in &transcript_files {
+        if processed >= budget {
+            skipped_remaining = true;
+            break;
+        }
+        let path_str = path.to_string_lossy().to_string();
+        let meta = match fs::metadata(path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let file_size = meta.len() as i64;
+        let mtime = file_mtime(&meta);
+        let cursor = get_cursor(conn, &path_str);
+        let needs_work = match &cursor {
+            Some((size, _, mt)) => *size != file_size || *mt != mtime,
+            None => true,
+        };
+        if !needs_work {
+            continue;
+        }
+
+        processed += 1;
+        if let Err(e) = ingest_antigravity_file(conn, path, &history) {
+            eprintln!("Antigravity ingest error for {}: {e}", path.display());
+        }
+    }
+
+    if !skipped_remaining {
+        clean_cursors(conn, "antigravity", &transcript_files);
+    }
+
+    conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+    Ok(!skipped_remaining)
+}
+
+fn ingest_antigravity_file(
+    conn: &Connection,
+    path: &Path,
+    history: &std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    let path_str = path.to_string_lossy().to_string();
+    let meta = fs::metadata(path).map_err(|e| e.to_string())?;
+    let file_size = meta.len() as i64;
+    let mtime = file_mtime(&meta);
+
+    if let Some((size, _, mt)) = get_cursor(conn, &path_str) {
+        if size == file_size && mt == mtime {
+            return Ok(());
+        }
+    }
+
+    let session_id = antigravity_session_id(path).unwrap_or_else(|| {
+        path.parent()
+            .and_then(Path::parent)
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string()
+    });
+    let project = history
+        .get(&session_id)
+        .map(|workspace| project_name_from_path(workspace))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let file = fs::File::open(path).map_err(|e| e.to_string())?;
+    let reader = BufReader::new(file);
+    let mut input = 0_u64;
+    let mut output = 0_u64;
+    let mut model = "unknown".to_string();
+    let mut timestamp = 0_u64;
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(line) => line,
+            Err(_) => continue,
+        };
+        let row: Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        if let Some(ts) = row
+            .get("created_at")
+            .and_then(Value::as_str)
+            .and_then(parse_iso_timestamp)
+        {
+            timestamp = ts;
+        }
+
+        let source = row.get("source").and_then(Value::as_str).unwrap_or_default();
+        let step_type = row.get("type").and_then(Value::as_str).unwrap_or_default();
+        let content = row.get("content").and_then(Value::as_str).unwrap_or_default();
+
+        if step_type == "USER_INPUT" || source == "USER_EXPLICIT" {
+            input = input.saturating_add(estimate_text_tokens(content));
+            if let Some(selected) = extract_antigravity_model_selection(content) {
+                model = selected;
+            }
+        } else if source == "MODEL" && step_type == "PLANNER_RESPONSE" {
+            output = output.saturating_add(estimate_text_tokens(content));
+            if let Some(thinking) = row.get("thinking").and_then(Value::as_str) {
+                output = output.saturating_add(estimate_text_tokens(thinking));
+            }
+            if let Some(tool_calls) = row.get("tool_calls") {
+                output = output.saturating_add(estimate_text_tokens(&tool_calls.to_string()));
+            }
+        }
+    }
+
+    let total = input + output;
+    if total == 0 {
+        upsert_cursor(conn, &path_str, "antigravity", file_size, file_size, mtime)?;
+        return Ok(());
+    }
+    let pricing_provider = antigravity_pricing_provider(&model);
+
+    conn.execute(
+        "DELETE FROM usage_messages WHERE provider = 'antigravity' AND session_id = ?1",
+        params![session_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO usage_messages (
+            provider, session_id, project, model, timestamp,
+            tokens_input, tokens_output, tokens_cache_write, tokens_cache_read,
+            tokens_thoughts, tokens_total, pricing_provider
+         ) VALUES (
+            'antigravity', ?1, ?2, ?3, ?4,
+            ?5, ?6, 0, 0,
+            0, ?7, ?8
+         )",
+        params![
+            session_id,
+            project,
+            model,
+            timestamp as i64,
+            input as i64,
+            output as i64,
+            total as i64,
+            pricing_provider,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    upsert_cursor(conn, &path_str, "antigravity", file_size, file_size, mtime)?;
+    Ok(())
+}
+
+fn antigravity_pricing_provider(model: &str) -> &'static str {
+    let lower = model.to_ascii_lowercase();
+    if lower.contains("gemini") {
+        "google"
+    } else if lower.contains("claude") {
+        "anthropic"
+    } else {
+        "antigravity"
+    }
+}
+
+fn antigravity_session_id(path: &Path) -> Option<String> {
+    path.parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .map(ToString::to_string)
+}
+
+fn read_antigravity_history() -> std::collections::HashMap<String, String> {
+    let mut sessions = std::collections::HashMap::new();
+    let Ok(path) = home_join(".gemini/antigravity-cli/history.jsonl") else {
+        return sessions;
+    };
+    let Ok(file) = fs::File::open(path) else {
+        return sessions;
+    };
+    let reader = BufReader::new(file);
+    for line in reader.lines().map_while(Result::ok) {
+        let Ok(row) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let Some(session_id) = row.get("conversationId").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(workspace) = row.get("workspace").and_then(Value::as_str) else {
+            continue;
+        };
+        sessions.insert(session_id.to_string(), workspace.to_string());
+    }
+    sessions
+}
+
+fn extract_antigravity_model_selection(content: &str) -> Option<String> {
+    let marker = "Model Selection` from ";
+    let start = content.find(marker)?;
+    let selected = &content[start + marker.len()..];
+    let (_, after_to) = selected.split_once(" to ")?;
+    let model = after_to
+        .split(". No need")
+        .next()
+        .unwrap_or(after_to)
+        .split('\n')
+        .next()
+        .unwrap_or(after_to)
+        .trim()
+        .trim_matches('`')
+        .trim();
+    if model.is_empty() || model == "None" {
+        None
+    } else {
+        Some(model.to_string())
+    }
+}
+
+fn estimate_text_tokens(text: &str) -> u64 {
+    let chars = text.chars().count() as u64;
+    if chars == 0 {
+        0
+    } else {
+        (chars + 3) / 4
+    }
+}
+
+fn project_name_from_path(path: &str) -> String {
+    path.rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .unwrap_or("unknown")
+        .to_string()
 }
 
 // ── Codex ─────────────────────────────────────────────────
@@ -1095,5 +1371,12 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn antigravity_pricing_provider_uses_underlying_model_vendor() {
+        assert_eq!(antigravity_pricing_provider("Gemini 3.5 Flash (Medium)"), "google");
+        assert_eq!(antigravity_pricing_provider("Claude Sonnet 4.6 (Thinking)"), "anthropic");
+        assert_eq!(antigravity_pricing_provider("GPT-OSS 120B"), "antigravity");
     }
 }

@@ -13,6 +13,11 @@ import {
   unregisterTerminal,
 } from "../../hooks/usePty";
 import { TERMINAL_LINE_HEIGHT, buildCSSFontFamily } from "../../lib/terminalConfig";
+import {
+  preserveTerminalViewport,
+  resyncTerminalViewport,
+  terminalBottomOffset,
+} from "../../lib/terminalViewport";
 import { createTerminalTheme } from "./terminalTheme";
 import { useThemeStore } from "../../stores/useThemeStore";
 import { notifyAgent } from "../../lib/notifications";
@@ -121,17 +126,25 @@ export default function TerminalView({
     const cached = terminalCache.get(ptyId);
     if (!cached) return;
 
-    cached.fitAddon.fit();
-    const size = { cols: cached.term.cols, rows: cached.term.rows };
+    const proposedSize = cached.fitAddon.proposeDimensions();
+    if (!proposedSize) return;
+
+    const size = { cols: proposedSize.cols, rows: proposedSize.rows };
     const lastSize = lastSizeRef.current;
 
     if (
       lastSize &&
       lastSize.cols === size.cols &&
-      lastSize.rows === size.rows
+      lastSize.rows === size.rows &&
+      cached.term.cols === size.cols &&
+      cached.term.rows === size.rows
     ) {
       return;
     }
+
+    preserveTerminalViewport(cached.term, () => {
+      cached.fitAddon.fit();
+    });
 
     lastSizeRef.current = size;
     await resizePty(ptyId, size.cols, size.rows).catch((error) => {
@@ -181,6 +194,12 @@ export default function TerminalView({
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       if (disposed) return;
 
+      // Snapshot the scroll position from xterm's internal buffer before
+      // touching anything: while the container was display:none the browser
+      // zeroed the DOM viewport's scrollTop, so the internal position is the
+      // only surviving record of where the user was.
+      const bottomOffset = terminalBottomOffset(term);
+
       // Re-apply the current theme now that the container is visible.
       // Theme changes that occurred while hidden were deferred to avoid
       // corrupting xterm's scroll state.
@@ -215,6 +234,11 @@ export default function TerminalView({
       await fitAndResize();
       if (disposed) return;
 
+      // fitAndResize skips the fit (and its viewport preservation) when the
+      // dimensions didn't change — the common case when returning to a tab —
+      // so the zeroed DOM scrollTop must be re-asserted unconditionally.
+      resyncTerminalViewport(term, bottomOffset);
+
       if (!attachedRef.current) {
         registerTerminal(ptyId, term);
         flushPendingOutput(ptyId);
@@ -224,6 +248,7 @@ export default function TerminalView({
       window.setTimeout(() => {
         if (disposed) return;
         void fitAndResize();
+        resyncTerminalViewport(term, bottomOffset);
         term.focus();
       }, 100);
 

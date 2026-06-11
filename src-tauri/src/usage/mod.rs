@@ -86,18 +86,21 @@ enum ProviderCacheData {
     Claude(Vec<UsageWindowSnapshot>, Vec<UsageWindowSnapshot>),
     Codex(Vec<UsageWindowSnapshot>),
     Gemini(Vec<UsageWindowSnapshot>),
+    Antigravity(Vec<UsageWindowSnapshot>, Vec<UsageWindowSnapshot>),
 }
 
 struct ProviderCache {
     claude: ProviderState,
     codex: ProviderState,
     gemini: ProviderState,
+    antigravity: ProviderState,
 }
 
 static PROVIDER_CACHE: Mutex<ProviderCache> = Mutex::new(ProviderCache {
     claude: ProviderState::new(),
     codex: ProviderState::new(),
     gemini: ProviderState::new(),
+    antigravity: ProviderState::new(),
 });
 
 /// Which providers are enabled (passed from frontend settings).
@@ -105,6 +108,7 @@ pub struct EnabledProviders {
     pub claude: bool,
     pub codex: bool,
     pub gemini: bool,
+    pub antigravity: bool,
 }
 
 /// Fetch snapshots for all providers from whatever is currently in the DB.
@@ -119,6 +123,7 @@ pub fn get_all_usage_snapshots(db: &UsageDb, enabled: &EnabledProviders) -> Vec<
         claude_snapshot(&conn),
         codex_snapshot(&conn),
         gemini_snapshot(&conn),
+        antigravity_snapshot(&conn),
         opencode_snapshot(&conn),
         pi_snapshot(&conn),
     ]
@@ -133,6 +138,7 @@ pub fn get_usage_snapshot(db: &UsageDb, provider: &str, enabled: &EnabledProvide
         "codex" => Ok(codex_snapshot(&conn)),
         "claude" => Ok(claude_snapshot(&conn)),
         "gemini" => Ok(gemini_snapshot(&conn)),
+        "antigravity" => Ok(antigravity_snapshot(&conn)),
         "opencode" => Ok(opencode_snapshot(&conn)),
         "pi" => Ok(pi_snapshot(&conn)),
         other => Err(format!("Unsupported usage provider: {other}")),
@@ -186,16 +192,17 @@ static PROVIDER_REFRESH_RUNNING: AtomicBool = AtomicBool::new(false);
 /// elapsed. Returns immediately — never blocks the calling thread on network I/O.
 fn spawn_provider_refresh(enabled: &EnabledProviders) {
     let now = now_epoch_seconds();
-    let (refresh_claude, refresh_codex, refresh_gemini) = {
+    let (refresh_claude, refresh_codex, refresh_gemini, refresh_antigravity) = {
         let cache = PROVIDER_CACHE.lock().unwrap();
         (
             enabled.claude && cache.claude.is_stale(now),
             enabled.codex && cache.codex.is_stale(now),
             enabled.gemini && cache.gemini.is_stale(now),
+            enabled.antigravity && cache.antigravity.is_stale(now),
         )
     };
 
-    if !refresh_claude && !refresh_codex && !refresh_gemini {
+    if !refresh_claude && !refresh_codex && !refresh_gemini && !refresh_antigravity {
         return;
     }
 
@@ -207,14 +214,15 @@ fn spawn_provider_refresh(enabled: &EnabledProviders) {
     let do_claude = refresh_claude;
     let do_codex = refresh_codex;
     let do_gemini = refresh_gemini;
+    let do_antigravity = refresh_antigravity;
     std::thread::spawn(move || {
-        refresh_provider_cache_sync(do_claude, do_codex, do_gemini);
+        refresh_provider_cache_sync(do_claude, do_codex, do_gemini, do_antigravity);
         PROVIDER_REFRESH_RUNNING.store(false, Ordering::SeqCst);
     });
 }
 
 /// Actual (blocking) provider refresh — only called from background thread.
-fn refresh_provider_cache_sync(do_claude: bool, do_codex: bool, do_gemini: bool) {
+fn refresh_provider_cache_sync(do_claude: bool, do_codex: bool, do_gemini: bool, do_antigravity: bool) {
     let now = now_epoch_seconds();
 
     if do_claude {
@@ -266,6 +274,24 @@ fn refresh_provider_cache_sync(do_claude: bool, do_codex: bool, do_gemini: bool)
                 cache.gemini.record_error(now, &e);
                 if should_log {
                     eprintln!("Gemini provider API error (using cache): {e}");
+                }
+            }
+        }
+    }
+
+    if do_antigravity {
+        match providers::antigravity_provider_windows() {
+            Ok(data) => {
+                let mut cache = PROVIDER_CACHE.lock().unwrap();
+                cache.antigravity.cache = Some(ProviderCacheData::Antigravity(data.0, data.1));
+                cache.antigravity.record_success(now);
+            }
+            Err(e) => {
+                let mut cache = PROVIDER_CACHE.lock().unwrap();
+                let should_log = cache.antigravity.should_log_error() || cache.antigravity.last_error != e;
+                cache.antigravity.record_error(now, &e);
+                if should_log {
+                    eprintln!("Antigravity provider API error (using cache): {e}");
                 }
             }
         }
@@ -417,6 +443,60 @@ fn gemini_snapshot(conn: &rusqlite::Connection) -> ProviderUsageSnapshot {
         extra_windows: Vec::new(),
         local_details: local,
         error: None,
+    }
+}
+
+fn antigravity_snapshot(conn: &rusqlite::Connection) -> ProviderUsageSnapshot {
+    let fetched_at = helpers::now_iso_string();
+    let local = queries::local_details(conn, "antigravity");
+    let cache = PROVIDER_CACHE.lock().unwrap();
+    let cached_data: Option<(Vec<UsageWindowSnapshot>, Vec<UsageWindowSnapshot>)> = match &cache.antigravity.cache {
+        Some(ProviderCacheData::Antigravity(summary, extra)) => Some((summary.clone(), extra.clone())),
+        _ => None,
+    };
+    let error = if cached_data.is_none() && !cache.antigravity.last_error.is_empty() {
+        Some(cache.antigravity.last_error.clone())
+    } else {
+        None
+    };
+    drop(cache);
+
+    let (mut summary_windows, extra_windows, status) = match cached_data {
+        Some((summary, extra)) => (summary, extra, "ready".to_string()),
+        None if local.is_some() => (Vec::new(), Vec::new(), "partial".to_string()),
+        None => (Vec::new(), Vec::new(), "unavailable".to_string()),
+    };
+
+    if let Some(ref details) = local {
+        for (window, tokens) in [("5h", details.tokens_5h), ("7d", details.tokens_7d), ("30d", details.tokens_30d)] {
+            summary_windows.push(UsageWindowSnapshot {
+                provider: "antigravity".to_string(),
+                window_id: format!("antigravity-local-{window}"),
+                window: window.to_string(),
+                label: window.to_string(),
+                scope: "reporting".to_string(),
+                limit: None,
+                used: None,
+                source_type: "local".to_string(),
+                confidence: "estimated".to_string(),
+                cost_kind: "unknown".to_string(),
+                used_percent: None,
+                remaining_percent: None,
+                reset_at: None,
+                token_total: Some(tokens),
+                pace_status: None,
+            });
+        }
+    }
+
+    ProviderUsageSnapshot {
+        provider: "antigravity".to_string(),
+        status,
+        fetched_at,
+        summary_windows,
+        extra_windows,
+        local_details: local,
+        error,
     }
 }
 

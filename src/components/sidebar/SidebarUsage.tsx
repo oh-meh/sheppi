@@ -39,7 +39,7 @@ interface SidebarUtilizationItem {
   provider: UsageProvider;
   label: string;
   pct: number;
-  tokens: number;
+  tokens: number | null;
   sublabel: string;
   pace: { status: PaceStatus; elapsedPct: number } | null;
   meta?: string;
@@ -54,6 +54,11 @@ function sidebarProviderWindows(provider: UsageProvider, snap: ProviderUsageSnap
   const windows = snap.summaryWindows
     .filter((sw) => sw.usedPercent != null && sw.sourceType === "provider")
     .filter((sw) => sw.window === window || sw.window.startsWith("24h_"));
+
+  if (provider === "antigravity") {
+    const mostUsed = [...windows].sort((a, b) => (b.usedPercent ?? 0) - (a.usedPercent ?? 0))[0];
+    return mostUsed ? [mostUsed] : windows;
+  }
 
   if (provider !== "gemini") return windows;
 
@@ -106,7 +111,7 @@ function buildUtilizationItems(
     const config = settings[provider];
     const snap = snapshots[provider];
     if (!config.show || !snap) return;
-    const tokens = windowTokenTotal(snap, window);
+    const tokens = provider === "antigravity" ? null : windowTokenTotal(snap, window);
 
     sidebarProviderWindows(provider, snap, window)
       .forEach((w) => {
@@ -156,7 +161,7 @@ function buildUtilizationItems(
     }
   });
 
-  return items.sort((a, b) => b.tokens - a.tokens || b.pct - a.pct);
+  return items.sort((a, b) => (b.tokens ?? 0) - (a.tokens ?? 0) || b.pct - a.pct);
 }
 
 function UsageTooltip({ tip }: { tip: TooltipState }) {
@@ -187,10 +192,12 @@ function UsageTooltip({ tip }: { tip: TooltipState }) {
           <span>Used</span>
           <span>{formatPercent(item.pct)}</span>
         </div>
-        <div className="sidebar-usage__tooltip-row">
-          <span>Tokens</span>
-          <span>{formatTokenCount(item.tokens)}</span>
-        </div>
+        {item.tokens != null && (
+          <div className="sidebar-usage__tooltip-row">
+            <span>Tokens</span>
+            <span>{formatTokenCount(item.tokens)}</span>
+          </div>
+        )}
         {item.sublabel && (
           <div className="sidebar-usage__tooltip-row">
             <span>Detail</span>

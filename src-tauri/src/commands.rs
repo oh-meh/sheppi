@@ -13,6 +13,7 @@ use crate::git;
 use crate::git::{ChangedFile, CreatedWorktree, DiffFileStat, GitStatus, WorktreeEntry};
 use crate::pty::manager::PtyManager;
 use crate::pty::session::{PtyColorTheme, PtyOutput};
+use crate::todos::{self, TodoFile};
 use crate::usage::{
     LocalUsageDetails, ProviderUsageSnapshot, UsageDb, UsageOverview, UsageProjectAliasReviewItem,
 };
@@ -455,6 +456,28 @@ pub fn get_computer_name() -> String {
         .unwrap_or_default()
 }
 
+// ── Todo commands ───────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn read_todos(repo_path: &str) -> Result<Vec<TodoFile>, String> {
+    todos::read_todos(repo_path)
+}
+
+#[tauri::command]
+pub fn toggle_todo(
+    file_path: &str,
+    line: usize,
+    expected_text: &str,
+    checked: bool,
+) -> Result<(), String> {
+    todos::toggle_todo(file_path, line, expected_text, checked)
+}
+
+#[tauri::command]
+pub fn add_todo(repo_path: &str, file_path: Option<&str>, text: &str) -> Result<(), String> {
+    todos::add_todo(repo_path, file_path, text)
+}
+
 #[tauri::command]
 pub fn check_command_exists(command: &str) -> bool {
     Command::new("which")
@@ -489,6 +512,7 @@ fn enabled_providers(workspace: &State<'_, WorkspaceManager>) -> crate::usage::E
         claude: settings.claude.show,
         codex: settings.codex.show,
         gemini: settings.gemini.show,
+        antigravity: settings.antigravity.show,
     }
 }
 

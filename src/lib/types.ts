@@ -39,6 +39,8 @@ export interface EditorSettings {
 
 export interface ProjectSettings {
   autoImportWorktrees: boolean;
+  showAgentSessionsInSidebar: boolean;
+  showTodos: boolean;
 }
 
 export interface KeybindingSettings {
@@ -92,7 +94,7 @@ export type SessionMode = "standard" | "yolo";
 
 // ── Unified tab model ──────────────────────────────────────────────
 
-export type PanelTabKind = "git" | "commands" | "launcher";
+export type PanelTabKind = "git" | "commands" | "launcher" | "todos";
 export type TabKind = "terminal" | "assistant" | PanelTabKind;
 
 interface TabBase {
@@ -124,6 +126,7 @@ export const panelTabDefaults: Record<PanelTabKind, { label: string }> = {
   git: { label: "Files" },
   commands: { label: "Commands" },
   launcher: { label: "New Agent" },
+  todos: { label: "To-dos" },
 };
 
 
@@ -134,6 +137,9 @@ export interface TabActivity {
   active: boolean;
   exitCode: number | null;
   bell: boolean;
+  lastOutputAt: number | null;
+  lastAttentionAt: number | null;
+  lastNotificationMessage: string | null;
 }
 
 // ── Coding assistants ───────────────────────────────────────────────
@@ -175,6 +181,25 @@ export interface WorktreeEntry {
 export interface CreatedWorktree {
   path: string;
   branch: string;
+}
+
+// ── Todos (TODO.md files) ────────────────────────────────────────────
+
+export interface TodoItem {
+  /** 0-based line index in the file; used for surgical edits. */
+  line: number;
+  text: string;
+  checked: boolean;
+  /** Leading whitespace width, for rendering nested items. */
+  indent: number;
+  /** Nearest preceding markdown heading, if any. */
+  section: string | null;
+}
+
+export interface TodoFile {
+  path: string;
+  relativePath: string;
+  items: TodoItem[];
 }
 
 // ── Git diff stats ───────────────────────────────────────────────────
@@ -234,7 +259,7 @@ export interface PtyColorTheme {
 
 // ── Usage ──────────────────────────────────────────────────────────
 
-export type UsageProvider = "codex" | "claude" | "gemini" | "opencode" | "pi";
+export type UsageProvider = "codex" | "claude" | "antigravity" | "gemini" | "opencode" | "pi";
 
 export type BudgetMode = "subscription" | "custom";
 
@@ -247,6 +272,7 @@ export interface ProviderBudgetConfig {
 export interface UsageSettings {
   claude: ProviderBudgetConfig;
   codex: ProviderBudgetConfig;
+  antigravity: ProviderBudgetConfig;
   gemini: ProviderBudgetConfig;
   opencode: ProviderBudgetConfig;
   pi: ProviderBudgetConfig;

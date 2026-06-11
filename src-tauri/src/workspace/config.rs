@@ -52,12 +52,18 @@ pub struct EditorSettings {
 pub struct ProjectSettings {
     #[serde(default = "default_true", rename = "autoImportWorktrees")]
     pub auto_import_worktrees: bool,
+    #[serde(default = "default_true", rename = "showAgentSessionsInSidebar")]
+    pub show_agent_sessions_in_sidebar: bool,
+    #[serde(default = "default_true", rename = "showTodos")]
+    pub show_todos: bool,
 }
 
 impl Default for ProjectSettings {
     fn default() -> Self {
         ProjectSettings {
             auto_import_worktrees: true,
+            show_agent_sessions_in_sidebar: true,
+            show_todos: true,
         }
     }
 }
@@ -229,6 +235,8 @@ pub struct UsageSettings {
     #[serde(default = "default_provider_subscription")]
     pub codex: ProviderBudgetConfig,
     #[serde(default = "default_provider_subscription")]
+    pub antigravity: ProviderBudgetConfig,
+    #[serde(default = "default_provider_subscription")]
     pub gemini: ProviderBudgetConfig,
     #[serde(default = "default_provider_custom")]
     pub opencode: ProviderBudgetConfig,
@@ -241,6 +249,7 @@ impl Default for UsageSettings {
         UsageSettings {
             claude: ProviderBudgetConfig::default_subscription(),
             codex: ProviderBudgetConfig::default_subscription(),
+            antigravity: ProviderBudgetConfig::default_subscription(),
             gemini: ProviderBudgetConfig { show: false, ..ProviderBudgetConfig::default_subscription() },
             opencode: ProviderBudgetConfig {
                 monthly_budget: Some(100.0),

@@ -8,6 +8,8 @@ import { useEditorStore } from "../../stores/useEditorStore";
 import { useThemeStore } from "../../stores/useThemeStore";
 import { useKeybindingStore } from "../../stores/useKeybindingStore";
 import { useProjectSettingsStore } from "../../stores/useProjectSettingsStore";
+import { useRepoStore } from "../../stores/useRepoStore";
+import { useTodoStore } from "../../stores/useTodoStore";
 import { useTerminalSettingsStore } from "../../stores/useTerminalSettingsStore";
 import { useUsageSettingsStore } from "../../stores/useUsageSettingsStore";
 import { useUpdateStore } from "../../stores/useUpdateStore";
@@ -370,7 +372,7 @@ export default function SettingsPanel() {
       <section className="settings-section">
         <h2 className="section-label !p-0 settings-section__header">Projects</h2>
 
-        <div className="settings-row !mb-0">
+        <div className="settings-row">
           <span className="settings-row__label flex items-center gap-2">
             <span>Auto-import Worktrees</span>
             <InfoTip text="When enabled, adding a main repo also imports its existing Git worktrees. Adding a worktree directly still adds its main repo so the relationship stays intact." />
@@ -380,6 +382,39 @@ export default function SettingsPanel() {
             className={`option-card option-card--compact ${projectSettings.autoImportWorktrees ? "selected" : ""}`}
           >
             {projectSettings.autoImportWorktrees ? "On" : "Off"}
+          </button>
+        </div>
+
+        <div className="settings-row">
+          <span className="settings-row__label flex items-center gap-2">
+            <span>Agent Sessions in Sidebar</span>
+            <InfoTip text="Shows the global agent session section above Projects. Project tabs and agent sessions remain available inside each project when this is off." />
+          </span>
+          <button
+            onClick={() => void updateProjectSettings({ showAgentSessionsInSidebar: !projectSettings.showAgentSessionsInSidebar })}
+            className={`option-card option-card--compact ${projectSettings.showAgentSessionsInSidebar ? "selected" : ""}`}
+          >
+            {projectSettings.showAgentSessionsInSidebar ? "On" : "Off"}
+          </button>
+        </div>
+
+        <div className="settings-row !mb-0">
+          <span className="settings-row__label flex items-center gap-2">
+            <span>Project To-dos</span>
+            <InfoTip text="Shows a To-dos row in each project that surfaces any TODO.md in the repo as a shared checklist for you and your coding agents. Turning this off hides the row and stops scanning for todo files." />
+          </span>
+          <button
+            onClick={() => {
+              const enabling = !projectSettings.showTodos;
+              void updateProjectSettings({ showTodos: enabling });
+              if (enabling) {
+                const repoPaths = useRepoStore.getState().repos.map((repo) => repo.path);
+                void useTodoStore.getState().refreshAll(repoPaths);
+              }
+            }}
+            className={`option-card option-card--compact ${projectSettings.showTodos ? "selected" : ""}`}
+          >
+            {projectSettings.showTodos ? "On" : "Off"}
           </button>
         </div>
 
@@ -535,11 +570,13 @@ export default function SettingsPanel() {
               ? "Claude"
               : provider === "codex"
                 ? "Codex"
-                : provider === "gemini"
-                  ? "Gemini"
-                  : provider === "opencode"
-                    ? "opencode"
-                    : "pi";
+                : provider === "antigravity"
+                  ? "Antigravity"
+                  : provider === "gemini"
+                    ? "Gemini"
+                    : provider === "opencode"
+                      ? "opencode"
+                      : "pi";
             const budgetInput = budgetInputs[provider] ?? (config.monthlyBudget != null ? String(config.monthlyBudget) : "");
             return (
               <div key={provider} className="usage-provider-row">

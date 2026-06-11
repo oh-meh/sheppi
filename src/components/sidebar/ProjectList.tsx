@@ -14,6 +14,7 @@ import AssistantList from "./AssistantList";
 import TerminalList from "./TerminalList";
 import CommandsRow from "./CommandsRow";
 import GitStatusRow from "./GitStatusRow";
+import TodoRow from "./TodoRow";
 
 interface ProjectListProps {
   repos: RepoInfo[];
@@ -21,7 +22,7 @@ interface ProjectListProps {
   activeRepoPath: string | null;
   activeTabId: string | null;
   commands: CommandState[];
-  projectActivity: Record<string, { terminalCount: number; runningCount: number; hasAttention: boolean; hasCrash: boolean }>;
+  projectActivity: Record<string, { terminalCount: number; runningCount: number; hasAttention: boolean; hasCrash: boolean; hasActive: boolean }>;
   onSelectRepo: (repoPath: string) => void;
   onAddProject: (repoPath: string) => Promise<void>;
   onRemoveProject: (repoPath: string) => void;
@@ -206,21 +207,23 @@ export default function ProjectList({
   }, [repos, groups, gitStatuses]);
 
   const groupActivity = useMemo(() => {
-    const result: Record<string, { hasAttention: boolean; hasCrash: boolean; hasActivity: boolean }> = {};
+    const result: Record<string, { hasAttention: boolean; hasCrash: boolean; hasActivity: boolean; hasActive: boolean }> = {};
     for (const group of sortedGroups) {
       const groupRepos = groupedRepos.get(group.id) ?? [];
       let hasAttention = false;
       let hasCrash = false;
       let hasActivity = false;
+      let hasActive = false;
       for (const repo of groupRepos) {
         const a = projectActivity[repo.path];
         if (a) {
           if (a.terminalCount > 0 || a.runningCount > 0) hasActivity = true;
           if (a.hasAttention) hasAttention = true;
           if (a.hasCrash) hasCrash = true;
+          if (a.hasActive) hasActive = true;
         }
       }
-      result[group.id] = { hasAttention, hasCrash, hasActivity };
+      result[group.id] = { hasAttention, hasCrash, hasActivity, hasActive };
     }
     return result;
   }, [sortedGroups, groupedRepos, projectActivity]);
@@ -283,6 +286,7 @@ export default function ProjectList({
 
             <CommandsRow badge={commandsBadge} />
             <GitStatusRow repoPath={repo.path} />
+            <TodoRow repoPath={repo.path} />
           </div>
         )}
       </div>
@@ -290,7 +294,7 @@ export default function ProjectList({
   };
 
   return (
-    <div className="flex flex-col gap-0.5 px-2 pb-2">
+    <div className="flex flex-col gap-0.5 pb-2">
       {sortedGroups.map((group) => {
         const groupRepos = groupedRepos.get(group.id) ?? [];
         const isGroupExpanded = expandedGroups.has(group.id);
