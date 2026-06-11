@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { TabActivity, TerminalTabData } from "../../lib/types";
 import { assistantLogoSrc, getAssistantLogoClass } from "../../lib/assistantLogos";
 import { handleActionKey } from "../../lib/a11y";
@@ -21,7 +21,6 @@ interface AgentSessionListProps {
 }
 
 const MAX_VISIBLE_SESSIONS = 4;
-const COLLAPSED_STORAGE_KEY = "shep:sidebar-agent-sessions-collapsed";
 
 function AgentSessionRow({
   item,
@@ -78,19 +77,14 @@ export default function AgentSessionList({
   activeTabId,
   onSelectSession,
 }: AgentSessionListProps) {
-  const [collapsed, setCollapsed] = useState(
-    () => window.localStorage.getItem(COLLAPSED_STORAGE_KEY) === "true",
-  );
+  // Always starts expanded on launch; collapsing is per-session only.
+  const [collapsed, setCollapsed] = useState(false);
   const visibleSessions = collapsed ? [] : sessions.slice(0, MAX_VISIBLE_SESSIONS);
   const overflowCount = Math.max(0, sessions.length - MAX_VISIBLE_SESSIONS);
 
   const handleToggle = useCallback(() => {
     setCollapsed((value) => !value);
   }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(COLLAPSED_STORAGE_KEY, String(collapsed));
-  }, [collapsed]);
 
   if (sessions.length === 0) return null;
 
