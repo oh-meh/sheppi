@@ -54,6 +54,8 @@ pub struct ProjectSettings {
     pub auto_import_worktrees: bool,
     #[serde(default = "default_true", rename = "showAgentSessionsInSidebar")]
     pub show_agent_sessions_in_sidebar: bool,
+    #[serde(default = "default_true", rename = "showTodos")]
+    pub show_todos: bool,
 }
 
 impl Default for ProjectSettings {
@@ -61,6 +63,7 @@ impl Default for ProjectSettings {
         ProjectSettings {
             auto_import_worktrees: true,
             show_agent_sessions_in_sidebar: true,
+            show_todos: true,
         }
     }
 }

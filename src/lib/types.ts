@@ -40,6 +40,7 @@ export interface EditorSettings {
 export interface ProjectSettings {
   autoImportWorktrees: boolean;
   showAgentSessionsInSidebar: boolean;
+  showTodos: boolean;
 }
 
 export interface KeybindingSettings {

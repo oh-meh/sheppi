@@ -1,5 +1,6 @@
 import { useTodoStore } from "../../stores/useTodoStore";
 import { useTerminalStore } from "../../stores/useTerminalStore";
+import { useProjectSettingsStore } from "../../stores/useProjectSettingsStore";
 import { panelTabId } from "../../lib/types";
 import tabKindMeta from "../../lib/tabKindMeta";
 
@@ -8,12 +9,15 @@ interface TodoRowProps {
 }
 
 export default function TodoRow({ repoPath }: TodoRowProps) {
+  const showTodos = useProjectSettingsStore((s) => s.settings.showTodos);
   const files = useTodoStore((s) => s.projectTodos[repoPath]);
   const isActive = useTerminalStore((s) => {
     const path = s.activeProjectPath;
     if (!path) return false;
     return s.projectState[path]?.activeTabId === panelTabId("todos");
   });
+
+  if (!showTodos) return null;
 
   const openCount =
     files?.reduce(

@@ -8,6 +8,8 @@ import { useEditorStore } from "../../stores/useEditorStore";
 import { useThemeStore } from "../../stores/useThemeStore";
 import { useKeybindingStore } from "../../stores/useKeybindingStore";
 import { useProjectSettingsStore } from "../../stores/useProjectSettingsStore";
+import { useRepoStore } from "../../stores/useRepoStore";
+import { useTodoStore } from "../../stores/useTodoStore";
 import { useTerminalSettingsStore } from "../../stores/useTerminalSettingsStore";
 import { useUsageSettingsStore } from "../../stores/useUsageSettingsStore";
 import { useUpdateStore } from "../../stores/useUpdateStore";
@@ -383,7 +385,7 @@ export default function SettingsPanel() {
           </button>
         </div>
 
-        <div className="settings-row !mb-0">
+        <div className="settings-row">
           <span className="settings-row__label flex items-center gap-2">
             <span>Agent Sessions in Sidebar</span>
             <InfoTip text="Shows the global agent session section above Projects. Project tabs and agent sessions remain available inside each project when this is off." />
@@ -393,6 +395,26 @@ export default function SettingsPanel() {
             className={`option-card option-card--compact ${projectSettings.showAgentSessionsInSidebar ? "selected" : ""}`}
           >
             {projectSettings.showAgentSessionsInSidebar ? "On" : "Off"}
+          </button>
+        </div>
+
+        <div className="settings-row !mb-0">
+          <span className="settings-row__label flex items-center gap-2">
+            <span>Project To-dos</span>
+            <InfoTip text="Shows a To-dos row in each project that surfaces any TODO.md in the repo as a shared checklist for you and your coding agents. Turning this off hides the row and stops scanning for todo files." />
+          </span>
+          <button
+            onClick={() => {
+              const enabling = !projectSettings.showTodos;
+              void updateProjectSettings({ showTodos: enabling });
+              if (enabling) {
+                const repoPaths = useRepoStore.getState().repos.map((repo) => repo.path);
+                void useTodoStore.getState().refreshAll(repoPaths);
+              }
+            }}
+            className={`option-card option-card--compact ${projectSettings.showTodos ? "selected" : ""}`}
+          >
+            {projectSettings.showTodos ? "On" : "Off"}
           </button>
         </div>
 
