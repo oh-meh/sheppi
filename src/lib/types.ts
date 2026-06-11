@@ -93,7 +93,7 @@ export type SessionMode = "standard" | "yolo";
 
 // ── Unified tab model ──────────────────────────────────────────────
 
-export type PanelTabKind = "git" | "commands" | "launcher";
+export type PanelTabKind = "git" | "commands" | "launcher" | "todos";
 export type TabKind = "terminal" | "assistant" | PanelTabKind;
 
 interface TabBase {
@@ -125,6 +125,7 @@ export const panelTabDefaults: Record<PanelTabKind, { label: string }> = {
   git: { label: "Files" },
   commands: { label: "Commands" },
   launcher: { label: "New Agent" },
+  todos: { label: "To-dos" },
 };
 
 
@@ -179,6 +180,25 @@ export interface WorktreeEntry {
 export interface CreatedWorktree {
   path: string;
   branch: string;
+}
+
+// ── Todos (TODO.md files) ────────────────────────────────────────────
+
+export interface TodoItem {
+  /** 0-based line index in the file; used for surgical edits. */
+  line: number;
+  text: string;
+  checked: boolean;
+  /** Leading whitespace width, for rendering nested items. */
+  indent: number;
+  /** Nearest preceding markdown heading, if any. */
+  section: string | null;
+}
+
+export interface TodoFile {
+  path: string;
+  relativePath: string;
+  items: TodoItem[];
 }
 
 // ── Git diff stats ───────────────────────────────────────────────────

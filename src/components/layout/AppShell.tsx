@@ -42,6 +42,7 @@ const SessionLauncher = lazy(() => import("../session/SessionLauncher"));
 const UsagePanel = lazy(() => import("../usage/UsagePanel"));
 const PortsPanel = lazy(() => import("../ports/PortsPanel"));
 const DiffSummaryPanel = lazy(() => import("../git/DiffSummaryPanel"));
+const TodosPanel = lazy(() => import("../todos/TodosPanel"));
 
 function toCommandConfig(command: CommandState): CommandConfig {
   return {
@@ -719,6 +720,11 @@ export default function AppShell() {
             {!showOverlay && activeTab?.kind === "launcher" && (
               <Suspense fallback={<PanelLoader />}>
                 <SessionLauncher onStartSession={handleStartSession} />
+              </Suspense>
+            )}
+            {!showOverlay && activeTab?.kind === "todos" && (
+              <Suspense fallback={<PanelLoader />}>
+                <TodosPanel />
               </Suspense>
             )}
 

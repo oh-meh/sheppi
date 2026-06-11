@@ -14,6 +14,7 @@ import AssistantList from "./AssistantList";
 import TerminalList from "./TerminalList";
 import CommandsRow from "./CommandsRow";
 import GitStatusRow from "./GitStatusRow";
+import TodoRow from "./TodoRow";
 
 interface ProjectListProps {
   repos: RepoInfo[];
@@ -285,6 +286,7 @@ export default function ProjectList({
 
             <CommandsRow badge={commandsBadge} />
             <GitStatusRow repoPath={repo.path} />
+            <TodoRow repoPath={repo.path} />
           </div>
         )}
       </div>

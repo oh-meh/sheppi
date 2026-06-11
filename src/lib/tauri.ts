@@ -26,6 +26,7 @@ import type {
   PiConfig,
   PiSettings,
   DiffFileStat,
+  TodoFile,
 } from "./types";
 
 // ── Workspace commands ──────────────────────────────────────────────
@@ -211,6 +212,29 @@ export function gitCurrentBranch(path: string): Promise<string> {
 
 export function gitListBranches(path: string): Promise<string[]> {
   return invoke("git_list_branches", { path });
+}
+
+// ── Todo commands ───────────────────────────────────────────────────
+
+export function readTodos(repoPath: string): Promise<TodoFile[]> {
+  return invoke("read_todos", { repoPath });
+}
+
+export function toggleTodo(
+  filePath: string,
+  line: number,
+  expectedText: string,
+  checked: boolean,
+): Promise<void> {
+  return invoke("toggle_todo", { filePath, line, expectedText, checked });
+}
+
+export function addTodo(
+  repoPath: string,
+  filePath: string | null,
+  text: string,
+): Promise<void> {
+  return invoke("add_todo", { repoPath, filePath, text });
 }
 
 export function gitListWorktrees(path: string): Promise<WorktreeEntry[]> {
