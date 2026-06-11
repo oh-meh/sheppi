@@ -232,6 +232,8 @@ pub struct UsageSettings {
     #[serde(default = "default_provider_subscription")]
     pub codex: ProviderBudgetConfig,
     #[serde(default = "default_provider_subscription")]
+    pub antigravity: ProviderBudgetConfig,
+    #[serde(default = "default_provider_subscription")]
     pub gemini: ProviderBudgetConfig,
     #[serde(default = "default_provider_custom")]
     pub opencode: ProviderBudgetConfig,
@@ -244,6 +246,7 @@ impl Default for UsageSettings {
         UsageSettings {
             claude: ProviderBudgetConfig::default_subscription(),
             codex: ProviderBudgetConfig::default_subscription(),
+            antigravity: ProviderBudgetConfig::default_subscription(),
             gemini: ProviderBudgetConfig { show: false, ..ProviderBudgetConfig::default_subscription() },
             opencode: ProviderBudgetConfig {
                 monthly_budget: Some(100.0),

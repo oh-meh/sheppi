@@ -56,20 +56,80 @@ fn load_pricing(conn: &Connection) -> PricingMap {
 
 /// Match a model name to a pricing pattern (prefix match).
 fn find_pricing<'a>(provider: &str, model: &str, pricing: &'a PricingMap) -> Option<&'a ModelPricing> {
-    if let Some(p) = pricing.get(&(provider.to_string(), model.to_string())) {
-        return Some(p);
-    }
+    let aliases = pricing_model_aliases(model);
     let mut best_match: Option<(&str, &ModelPricing)> = None;
-    for ((pricing_provider, pattern), p) in pricing {
-        if pricing_provider == provider && model.starts_with(pattern.as_str()) {
-            match best_match {
-                Some((prev, _)) if pattern.len() > prev.len() => best_match = Some((pattern, p)),
-                None => best_match = Some((pattern, p)),
-                _ => {}
+    for alias in aliases {
+        if let Some(p) = pricing.get(&(provider.to_string(), alias.clone())) {
+            return Some(p);
+        }
+        for ((pricing_provider, pattern), p) in pricing {
+            if pricing_provider == provider && alias.starts_with(pattern.as_str()) {
+                match best_match {
+                    Some((prev, _)) if pattern.len() > prev.len() => best_match = Some((pattern, p)),
+                    None => best_match = Some((pattern, p)),
+                    _ => {}
+                }
             }
         }
     }
     best_match.map(|(_, p)| p)
+}
+
+fn pricing_model_aliases(model: &str) -> Vec<String> {
+    let mut aliases = vec![model.to_string()];
+    let lower = model.to_ascii_lowercase();
+
+    if lower.contains("gemini 3.5 flash") {
+        aliases.push("gemini-3.5-flash".to_string());
+    } else if lower.contains("gemini 3.1 pro") {
+        aliases.push("gemini-3.1-pro-preview".to_string());
+    } else if lower.contains("gemini 3.1 flash") && lower.contains("image") {
+        aliases.push("gemini-3.1-flash-image-preview".to_string());
+    } else if lower.contains("gemini 3.1 flash") {
+        aliases.push("gemini-3.1-flash-lite".to_string());
+    } else if lower.contains("gemini 3 pro") && lower.contains("image") {
+        aliases.push("gemini-3-pro-image-preview".to_string());
+    } else if lower.contains("gemini 3 pro") {
+        aliases.push("gemini-3-pro-preview".to_string());
+    } else if lower.contains("gemini 3 flash") {
+        aliases.push("gemini-3-flash-preview".to_string());
+    } else if lower.contains("gemini 2.5 pro") {
+        aliases.push("gemini-2.5-pro".to_string());
+    } else if lower.contains("gemini 2.5 flash") && lower.contains("lite") {
+        aliases.push("gemini-2.5-flash-lite".to_string());
+    } else if lower.contains("gemini 2.5 flash") {
+        aliases.push("gemini-2.5-flash".to_string());
+    } else if lower.contains("gemini 2.0 flash") && lower.contains("lite") {
+        aliases.push("gemini-2.0-flash-lite".to_string());
+    } else if lower.contains("gemini 2.0 flash") {
+        aliases.push("gemini-2.0-flash".to_string());
+    }
+
+    if lower.contains("claude sonnet 4.6") {
+        aliases.push("claude-sonnet-4-6".to_string());
+    } else if lower.contains("claude sonnet 4.5") {
+        aliases.push("claude-sonnet-4-5".to_string());
+    } else if lower.contains("claude sonnet 4") {
+        aliases.push("claude-sonnet-4-0".to_string());
+    } else if lower.contains("claude opus 4.8") {
+        aliases.push("claude-opus-4-8".to_string());
+    } else if lower.contains("claude opus 4.7") {
+        aliases.push("claude-opus-4-7".to_string());
+    } else if lower.contains("claude opus 4.6") {
+        aliases.push("claude-opus-4-6".to_string());
+    } else if lower.contains("claude opus 4.5") {
+        aliases.push("claude-opus-4-5".to_string());
+    } else if lower.contains("claude opus 4.1") {
+        aliases.push("claude-opus-4-1".to_string());
+    } else if lower.contains("claude opus 4") {
+        aliases.push("claude-opus-4-0".to_string());
+    } else if lower.contains("claude haiku 4.5") {
+        aliases.push("claude-haiku-4-5".to_string());
+    } else if lower.contains("claude fable 5") {
+        aliases.push("claude-fable-5".to_string());
+    }
+
+    aliases
 }
 
 /// Calculate cost in USD for a set of token counts.
@@ -1596,4 +1656,49 @@ pub fn models_for_provider(conn: &Connection, provider: &str) -> Vec<String> {
     };
 
     rows.filter_map(|r| r.ok()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model_pricing(input_per_m: f64, output_per_m: f64) -> ModelPricing {
+        ModelPricing {
+            input_per_m,
+            output_per_m,
+            cache_read_per_m: 0.0,
+            cache_write_per_m: 0.0,
+            thoughts_per_m: 0.0,
+        }
+    }
+
+    #[test]
+    fn find_pricing_maps_antigravity_gemini_labels() {
+        let mut pricing = PricingMap::new();
+        pricing.insert(
+            ("google".to_string(), "gemini-3.5-flash".to_string()),
+            model_pricing(1.5, 9.0),
+        );
+
+        let found = find_pricing("google", "Gemini 3.5 Flash (Medium)", &pricing)
+            .expect("pricing");
+
+        assert_eq!(found.input_per_m, 1.5);
+        assert_eq!(found.output_per_m, 9.0);
+    }
+
+    #[test]
+    fn find_pricing_maps_antigravity_claude_labels() {
+        let mut pricing = PricingMap::new();
+        pricing.insert(
+            ("anthropic".to_string(), "claude-sonnet-4-6".to_string()),
+            model_pricing(3.0, 15.0),
+        );
+
+        let found = find_pricing("anthropic", "Claude Sonnet 4.6 (Thinking)", &pricing)
+            .expect("pricing");
+
+        assert_eq!(found.input_per_m, 3.0);
+        assert_eq!(found.output_per_m, 15.0);
+    }
 }

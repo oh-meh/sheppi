@@ -548,11 +548,13 @@ export default function SettingsPanel() {
               ? "Claude"
               : provider === "codex"
                 ? "Codex"
-                : provider === "gemini"
-                  ? "Gemini"
-                  : provider === "opencode"
-                    ? "opencode"
-                    : "pi";
+                : provider === "antigravity"
+                  ? "Antigravity"
+                  : provider === "gemini"
+                    ? "Gemini"
+                    : provider === "opencode"
+                      ? "opencode"
+                      : "pi";
             const budgetInput = budgetInputs[provider] ?? (config.monthlyBudget != null ? String(config.monthlyBudget) : "");
             return (
               <div key={provider} className="usage-provider-row">

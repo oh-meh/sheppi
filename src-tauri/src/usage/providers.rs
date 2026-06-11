@@ -1,6 +1,8 @@
 use serde_json::Value;
-use std::fs;
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
+use std::process::Command;
 
 use super::helpers::{home_join, run_command};
 use super::types::UsageWindowSnapshot;
@@ -135,6 +137,498 @@ fn percent_window(provider: &str, label: &str, value: &Value) -> UsageWindowSnap
         token_total: None,
         pace_status: None,
     }
+}
+
+// ── Antigravity ───────────────────────────────────────────
+
+struct AntigravityProcess {
+    pid: i64,
+    csrf_token: String,
+    extension_port: Option<i64>,
+    extension_csrf_token: Option<String>,
+}
+
+struct AntigravityEndpoint {
+    scheme: &'static str,
+    port: i64,
+    csrf_token: String,
+}
+
+struct AntigravityQuota {
+    label: String,
+    model_id: String,
+    remaining_fraction: f64,
+    reset_time: Option<String>,
+}
+
+pub fn antigravity_provider_windows() -> Result<(Vec<UsageWindowSnapshot>, Vec<UsageWindowSnapshot>), String> {
+    let process = antigravity_detect_process()?;
+    let ports = antigravity_listening_ports(process.pid)?;
+    let endpoints = antigravity_endpoints(&process, &ports);
+    if endpoints.is_empty() {
+        return Err("Antigravity language server has no detectable API port".to_string());
+    }
+
+    let quotas = antigravity_fetch_quotas(&endpoints)?;
+    antigravity_quotas_to_windows(&quotas)
+}
+
+fn antigravity_detect_process() -> Result<AntigravityProcess, String> {
+    let output = antigravity_process_list()?;
+    let mut saw_tokenless_ide = false;
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Some((pid_raw, command)) = trimmed.split_once(char::is_whitespace) else {
+            continue;
+        };
+        let Ok(pid) = pid_raw.trim().parse::<i64>() else {
+            continue;
+        };
+        let command = command.trim();
+        let Some(kind) = antigravity_process_kind(command) else {
+            continue;
+        };
+        let csrf_token = match extract_flag("--csrf_token", command) {
+            Some(token) => token,
+            None if kind == "cli" => String::new(),
+            None => {
+                saw_tokenless_ide = true;
+                continue;
+            }
+        };
+        return Ok(AntigravityProcess {
+            pid,
+            csrf_token,
+            extension_port: extract_flag("--extension_server_port", command)
+                .and_then(|value| value.parse::<i64>().ok()),
+            extension_csrf_token: extract_flag("--extension_server_csrf_token", command),
+        });
+    }
+
+    if saw_tokenless_ide {
+        Err("Antigravity language server is missing a CSRF token".to_string())
+    } else {
+        Err("Antigravity language server not detected. Launch Antigravity or agy and retry.".to_string())
+    }
+}
+
+fn antigravity_process_list() -> Result<String, String> {
+    let output = Command::new("/bin/ps")
+        .args(["-ax", "-o", "pid=,command="])
+        .output()
+        .map_err(|e| format!("Failed to run /bin/ps: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "/bin/ps exited with status {:?}: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    String::from_utf8(output.stdout)
+        .map(|s| s.trim().to_string())
+        .map_err(|e| format!("Invalid UTF-8 from /bin/ps: {e}"))
+}
+
+fn antigravity_process_kind(command: &str) -> Option<&'static str> {
+    let lower = command.to_lowercase();
+    if is_antigravity_ide_language_server(&lower) {
+        return Some("ide");
+    }
+    if is_antigravity_cli_command(&lower) {
+        return Some("cli");
+    }
+    None
+}
+
+fn is_antigravity_ide_language_server(lower: &str) -> bool {
+    (lower.contains("/language_server") || lower.contains("\\language_server"))
+        && (lower.contains("--app_data_dir") && lower.contains("antigravity")
+            || lower.contains("/antigravity/")
+            || lower.contains("\\antigravity\\"))
+}
+
+fn is_antigravity_cli_command(lower: &str) -> bool {
+    command_contains_program(lower, "agy")
+        || command_contains_program(lower, "antigravity-cli")
+        || command_contains_program(lower, "antigravity_cli")
+}
+
+fn command_contains_program(command: &str, program: &str) -> bool {
+    command == program
+        || command.starts_with(&format!("{program} "))
+        || command.contains(&format!(" {program} "))
+        || command.ends_with(&format!("/{program}"))
+        || command.contains(&format!("/{program} "))
+        || command.ends_with(&format!("\\{program}"))
+        || command.contains(&format!("\\{program} "))
+}
+
+fn extract_flag(flag: &str, command: &str) -> Option<String> {
+    let bytes = command.as_bytes();
+    let flag_bytes = flag.as_bytes();
+    let mut index = 0;
+    while index + flag_bytes.len() <= bytes.len() {
+        if &bytes[index..index + flag_bytes.len()] == flag_bytes {
+            let mut value_start = index + flag_bytes.len();
+            while value_start < bytes.len() && (bytes[value_start] == b'=' || bytes[value_start].is_ascii_whitespace()) {
+                value_start += 1;
+            }
+            if value_start >= bytes.len() {
+                return None;
+            }
+            let mut value_end = value_start;
+            while value_end < bytes.len() && !bytes[value_end].is_ascii_whitespace() {
+                value_end += 1;
+            }
+            return Some(command[value_start..value_end].to_string());
+        }
+        index += 1;
+    }
+    None
+}
+
+fn antigravity_listening_ports(pid: i64) -> Result<Vec<i64>, String> {
+    let lsof = ["/usr/sbin/lsof", "/usr/bin/lsof"]
+        .into_iter()
+        .find(|path| Path::new(path).exists())
+        .ok_or_else(|| "lsof not available".to_string())?;
+    let output = run_command(lsof, &["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", &pid.to_string()])?;
+    let mut ports = Vec::new();
+    for line in output.lines() {
+        if !line.contains("(LISTEN)") {
+            continue;
+        }
+        let Some(colon) = line.rfind(':') else {
+            continue;
+        };
+        let rest = &line[colon + 1..];
+        let port_raw: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let Ok(port) = port_raw.parse::<i64>() else {
+            continue;
+        };
+        if !ports.contains(&port) {
+            ports.push(port);
+        }
+    }
+    ports.sort_unstable();
+    if ports.is_empty() {
+        Err("No Antigravity listening ports found".to_string())
+    } else {
+        Ok(ports)
+    }
+}
+
+fn antigravity_endpoints(process: &AntigravityProcess, ports: &[i64]) -> Vec<AntigravityEndpoint> {
+    let mut endpoints = Vec::new();
+    for port in ports {
+        endpoints.push(AntigravityEndpoint {
+            scheme: "https",
+            port: *port,
+            csrf_token: process.csrf_token.clone(),
+        });
+    }
+    if let Some(port) = process.extension_port {
+        if let Some(token) = &process.extension_csrf_token {
+            endpoints.push(AntigravityEndpoint {
+                scheme: "http",
+                port,
+                csrf_token: token.clone(),
+            });
+        }
+        if process.extension_csrf_token.as_deref() != Some(process.csrf_token.as_str()) {
+            endpoints.push(AntigravityEndpoint {
+                scheme: "http",
+                port,
+                csrf_token: process.csrf_token.clone(),
+            });
+        }
+    }
+    endpoints
+}
+
+fn antigravity_fetch_quotas(endpoints: &[AntigravityEndpoint]) -> Result<Vec<AntigravityQuota>, String> {
+    let mut last_error = "No Antigravity endpoint available".to_string();
+    for endpoint in endpoints {
+        for path in [
+            "/exa.language_server_pb.LanguageServerService/GetUserStatus",
+            "/exa.language_server_pb.LanguageServerService/GetCommandModelConfigs",
+        ] {
+            match antigravity_request(endpoint, path).and_then(|body| antigravity_parse_quotas(&body)) {
+                Ok(quotas) if !quotas.is_empty() => return Ok(quotas),
+                Ok(_) => last_error = "Antigravity returned no quota models".to_string(),
+                Err(error) => last_error = error,
+            }
+        }
+    }
+    Err(last_error)
+}
+
+fn antigravity_request(endpoint: &AntigravityEndpoint, path: &str) -> Result<String, String> {
+    let url = format!("{}://127.0.0.1:{}{}", endpoint.scheme, endpoint.port, path);
+    let csrf_header = format!("X-Codeium-Csrf-Token: {}", endpoint.csrf_token);
+    let body = r#"{"metadata":{"ideName":"antigravity","extensionName":"antigravity","ideVersion":"unknown","locale":"en"}}"#;
+    run_command(
+        "curl",
+        &[
+            "-skS",
+            "--max-time",
+            "8",
+            "--connect-timeout",
+            "2",
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            "Connect-Protocol-Version: 1",
+            "-H",
+            &csrf_header,
+            "-d",
+            body,
+            &url,
+        ],
+    )
+}
+
+fn antigravity_parse_quotas(body: &str) -> Result<Vec<AntigravityQuota>, String> {
+    let json: Value = serde_json::from_str(body)
+        .map_err(|e| format!("Failed to parse Antigravity response: {e}"))?;
+
+    if let Some(code) = json.get("code") {
+        let text = code
+            .as_str()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| code.to_string());
+        let normalized = text.trim_matches('"').to_lowercase();
+        if !normalized.is_empty() && normalized != "ok" && normalized != "success" && normalized != "0" {
+            return Err(format!("Antigravity API returned code {text}"));
+        }
+    }
+
+    let model_configs = json
+        .pointer("/userStatus/cascadeModelConfigData/clientModelConfigs")
+        .and_then(Value::as_array)
+        .or_else(|| json.get("clientModelConfigs").and_then(Value::as_array))
+        .ok_or_else(|| "Antigravity response missing model configs".to_string())?;
+
+    let mut quotas = Vec::new();
+    for config in model_configs {
+        let Some(quota) = config.get("quotaInfo") else {
+            continue;
+        };
+        let Some(remaining_fraction) = quota.get("remainingFraction").and_then(Value::as_f64) else {
+            continue;
+        };
+        let model_id = config
+            .pointer("/modelOrAlias/model")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        let label = config
+            .get("label")
+            .and_then(Value::as_str)
+            .unwrap_or(&model_id)
+            .to_string();
+        let reset_time = quota.get("resetTime").and_then(Value::as_str).map(ToString::to_string);
+        quotas.push(AntigravityQuota {
+            label,
+            model_id,
+            remaining_fraction,
+            reset_time,
+        });
+    }
+
+    Ok(quotas)
+}
+
+fn antigravity_quotas_to_windows(quotas: &[AntigravityQuota]) -> Result<(Vec<UsageWindowSnapshot>, Vec<UsageWindowSnapshot>), String> {
+    let mut summary = Vec::new();
+    let families = [
+        ("claude", "24h_claude", "Claude quota"),
+        ("gemini_pro", "24h_gemini_pro", "Gemini Pro quota"),
+        ("gemini_flash", "24h_gemini_flash", "Gemini Flash quota"),
+    ];
+
+    for (family, window, label) in families {
+        if let Some(quota) = quotas
+            .iter()
+            .filter(|quota| antigravity_model_family(quota) == family)
+            .min_by(|a, b| a.remaining_fraction.total_cmp(&b.remaining_fraction))
+        {
+            summary.push(antigravity_window(
+                &format!("antigravity-{window}"),
+                window,
+                label,
+                quota,
+            ));
+        }
+    }
+
+    if summary.is_empty() {
+        if let Some(quota) = quotas
+            .iter()
+            .min_by(|a, b| a.remaining_fraction.total_cmp(&b.remaining_fraction))
+        {
+            summary.push(antigravity_window(
+                "antigravity-quota",
+                "quota",
+                &quota.label,
+                quota,
+            ));
+        }
+    }
+
+    let mut extra: Vec<_> = quotas
+        .iter()
+        .map(|quota| {
+            antigravity_window(
+                &format!("antigravity-model-{}", sanitize_window_id(&quota.model_id)),
+                &sanitize_window_id(&quota.model_id),
+                &quota.label,
+                quota,
+            )
+        })
+        .collect();
+    extra.sort_by(|a, b| a.label.cmp(&b.label));
+
+    if summary.is_empty() {
+        return Err("No Antigravity quota windows could be derived".to_string());
+    }
+
+    Ok((summary, extra))
+}
+
+fn antigravity_model_family(quota: &AntigravityQuota) -> &'static str {
+    let text = format!("{} {}", quota.label, quota.model_id).to_lowercase();
+    if text.contains("claude") {
+        "claude"
+    } else if text.contains("gemini") && text.contains("pro") && !text.contains("flash") {
+        "gemini_pro"
+    } else if text.contains("gemini") && text.contains("flash") {
+        "gemini_flash"
+    } else {
+        "other"
+    }
+}
+
+fn antigravity_window(
+    window_id: &str,
+    window: &str,
+    label: &str,
+    quota: &AntigravityQuota,
+) -> UsageWindowSnapshot {
+    let remaining = (quota.remaining_fraction * 100.0).clamp(0.0, 100.0);
+    let used = (100.0 - remaining).max(0.0);
+    UsageWindowSnapshot {
+        provider: "antigravity".to_string(),
+        window_id: window_id.to_string(),
+        window: window.to_string(),
+        label: label.to_string(),
+        scope: "plan".to_string(),
+        limit: Some(100.0),
+        used: Some(used),
+        source_type: "provider".to_string(),
+        confidence: "official".to_string(),
+        cost_kind: "included".to_string(),
+        used_percent: Some(used),
+        remaining_percent: Some(remaining),
+        reset_at: quota.reset_time.clone(),
+        token_total: None,
+        pace_status: None,
+    }
+}
+
+fn sanitize_window_id(value: &str) -> String {
+    let sanitized: String = value
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+        .collect();
+    sanitized.trim_matches('-').to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn antigravity_process_kind_matches_cli_commands() {
+        assert_eq!(antigravity_process_kind("agy --model gemini"), Some("cli"));
+        assert_eq!(antigravity_process_kind("/usr/local/bin/antigravity-cli serve"), Some("cli"));
+        assert_eq!(antigravity_process_kind("/opt/bin/antigravity_cli"), Some("cli"));
+        assert_eq!(antigravity_process_kind("/usr/bin/env agy --dangerously-skip-permissions"), Some("cli"));
+    }
+
+    #[test]
+    fn antigravity_process_kind_matches_ide_language_server() {
+        let command = "/Applications/Antigravity.app/Contents/Resources/app/bin/language_server --app_data_dir /Users/me/Library/Application Support/Antigravity --csrf_token token";
+        assert_eq!(antigravity_process_kind(command), Some("ide"));
+    }
+
+    #[test]
+    fn extract_flag_accepts_space_and_equals_forms() {
+        assert_eq!(extract_flag("--csrf_token", "language_server --csrf_token abc123"), Some("abc123".to_string()));
+        assert_eq!(extract_flag("--csrf_token", "language_server --csrf_token=abc123"), Some("abc123".to_string()));
+        assert_eq!(extract_flag("--csrf_token", "language_server --other abc123"), None);
+    }
+
+    #[test]
+    fn antigravity_parse_quotas_reads_user_status_shape() {
+        let body = r#"{
+            "code": "success",
+            "userStatus": {
+                "cascadeModelConfigData": {
+                    "clientModelConfigs": [
+                        {
+                            "label": "Claude Sonnet 4.5",
+                            "modelOrAlias": { "model": "claude-sonnet-4-5" },
+                            "quotaInfo": { "remainingFraction": 0.42, "resetTime": "2026-06-10T12:00:00Z" }
+                        },
+                        {
+                            "label": "Gemini 3 Pro",
+                            "modelOrAlias": { "model": "gemini-3-pro" }
+                        }
+                    ]
+                }
+            }
+        }"#;
+
+        let quotas = antigravity_parse_quotas(body).expect("quotas");
+        assert_eq!(quotas.len(), 1);
+        assert_eq!(quotas[0].label, "Claude Sonnet 4.5");
+        assert_eq!(quotas[0].model_id, "claude-sonnet-4-5");
+        assert_eq!(quotas[0].remaining_fraction, 0.42);
+        assert_eq!(quotas[0].reset_time.as_deref(), Some("2026-06-10T12:00:00Z"));
+    }
+
+    #[test]
+    fn antigravity_windows_use_24h_summary_names() {
+        let quotas = vec![
+            AntigravityQuota {
+                label: "Claude Sonnet 4.5".to_string(),
+                model_id: "claude-sonnet-4-5".to_string(),
+                remaining_fraction: 0.5,
+                reset_time: None,
+            },
+            AntigravityQuota {
+                label: "Gemini 3 Pro".to_string(),
+                model_id: "gemini-3-pro".to_string(),
+                remaining_fraction: 0.75,
+                reset_time: None,
+            },
+        ];
+
+        let (summary, extra) = antigravity_quotas_to_windows(&quotas).expect("windows");
+        assert_eq!(summary[0].window, "24h_claude");
+        assert_eq!(summary[1].window, "24h_gemini_pro");
+        assert_eq!(summary[0].used_percent, Some(50.0));
+        assert_eq!(summary[1].remaining_percent, Some(75.0));
+        assert_eq!(extra.len(), 2);
+    }
+
 }
 
 // ── Gemini ────────────────────────────────────────────────

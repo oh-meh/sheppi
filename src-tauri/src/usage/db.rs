@@ -256,6 +256,47 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("Failed to run migration v9: {e}"))?;
     }
 
+    if version < 10 {
+        conn.execute_batch(
+            "DELETE FROM usage_messages WHERE provider = 'antigravity';
+             DELETE FROM usage_daily WHERE provider = 'antigravity';
+             DELETE FROM ingest_cursors WHERE provider = 'antigravity';
+             INSERT INTO schema_version (version) VALUES (10);",
+        )
+        .map_err(|e| format!("Failed to run migration v10: {e}"))?;
+    }
+
+    if version < 11 {
+        if column_exists(conn, "usage_messages", "pricing_provider")
+            && column_exists(conn, "usage_messages", "model")
+        {
+            conn.execute_batch(
+                "UPDATE usage_messages
+                 SET pricing_provider = 'google'
+                 WHERE provider = 'antigravity' AND lower(COALESCE(model, '')) LIKE '%gemini%';
+                 UPDATE usage_messages
+                 SET pricing_provider = 'anthropic'
+                 WHERE provider = 'antigravity' AND lower(COALESCE(model, '')) LIKE '%claude%';",
+            )
+            .map_err(|e| format!("Failed to run migration v11 usage_messages update: {e}"))?;
+        }
+        if column_exists(conn, "usage_daily", "pricing_provider")
+            && column_exists(conn, "usage_daily", "model")
+        {
+            conn.execute_batch(
+                "UPDATE usage_daily
+                 SET pricing_provider = 'google'
+                 WHERE provider = 'antigravity' AND lower(COALESCE(model, '')) LIKE '%gemini%';
+                 UPDATE usage_daily
+                 SET pricing_provider = 'anthropic'
+                 WHERE provider = 'antigravity' AND lower(COALESCE(model, '')) LIKE '%claude%';",
+            )
+            .map_err(|e| format!("Failed to run migration v11 usage_daily update: {e}"))?;
+        }
+        conn.execute("INSERT INTO schema_version (version) VALUES (11)", [])
+            .map_err(|e| format!("Failed to run migration v11: {e}"))?;
+    }
+
     Ok(())
 }
 
@@ -361,7 +402,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM model_pricing", [], |row| row.get(0))
             .unwrap();
 
-        assert_eq!(version, 9);
+        assert_eq!(version, 11);
         assert!(pricing_rows > 0);
     }
 
@@ -400,7 +441,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(stale_count, 0);
-        assert_eq!(version, 9);
+        assert_eq!(version, 11);
     }
 
     #[test]
@@ -456,6 +497,126 @@ mod tests {
 
         assert_eq!(codex_rows, 0);
         assert_eq!(claude_rows, 3);
-        assert_eq!(version, 9);
+        assert_eq!(version, 11);
+    }
+
+    #[test]
+    fn v10_clears_antigravity_usage_for_model_reingest() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version (version) VALUES (9);
+             CREATE TABLE usage_messages (provider TEXT);
+             CREATE TABLE usage_daily (provider TEXT);
+             CREATE TABLE ingest_cursors (provider TEXT);
+             INSERT INTO usage_messages (provider) VALUES ('antigravity'), ('claude');
+             INSERT INTO usage_daily (provider) VALUES ('antigravity'), ('claude');
+             INSERT INTO ingest_cursors (provider) VALUES ('antigravity'), ('claude');",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let antigravity_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM (
+                    SELECT provider FROM usage_messages
+                    UNION ALL
+                    SELECT provider FROM usage_daily
+                    UNION ALL
+                    SELECT provider FROM ingest_cursors
+                 ) WHERE provider = 'antigravity'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let claude_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM (
+                    SELECT provider FROM usage_messages
+                    UNION ALL
+                    SELECT provider FROM usage_daily
+                    UNION ALL
+                    SELECT provider FROM ingest_cursors
+                 ) WHERE provider = 'claude'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let version: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(antigravity_rows, 0);
+        assert_eq!(claude_rows, 3);
+        assert_eq!(version, 11);
+    }
+
+    #[test]
+    fn v11_maps_antigravity_pricing_to_underlying_provider() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version (version) VALUES (10);
+             CREATE TABLE usage_messages (provider TEXT, model TEXT, pricing_provider TEXT);
+             CREATE TABLE usage_daily (provider TEXT, model TEXT, pricing_provider TEXT);
+             INSERT INTO usage_messages (provider, model, pricing_provider) VALUES
+                ('antigravity', 'Gemini 3.5 Flash (Medium)', 'antigravity'),
+                ('antigravity', 'Claude Sonnet 4.6 (Thinking)', 'antigravity'),
+                ('antigravity', 'GPT-OSS 120B', 'antigravity');
+             INSERT INTO usage_daily (provider, model, pricing_provider) VALUES
+                ('antigravity', 'Gemini 3.5 Flash (Medium)', 'antigravity'),
+                ('antigravity', 'Claude Sonnet 4.6 (Thinking)', 'antigravity');",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let google_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM (
+                    SELECT pricing_provider FROM usage_messages
+                    UNION ALL
+                    SELECT pricing_provider FROM usage_daily
+                 ) WHERE pricing_provider = 'google'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let anthropic_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM (
+                    SELECT pricing_provider FROM usage_messages
+                    UNION ALL
+                    SELECT pricing_provider FROM usage_daily
+                 ) WHERE pricing_provider = 'anthropic'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let unknown_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM usage_messages
+                 WHERE model = 'GPT-OSS 120B' AND pricing_provider = 'antigravity'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let version: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(google_rows, 2);
+        assert_eq!(anthropic_rows, 2);
+        assert_eq!(unknown_rows, 1);
+        assert_eq!(version, 11);
     }
 }
