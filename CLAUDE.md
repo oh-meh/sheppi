@@ -3,6 +3,23 @@
 ## Project Overview
 Shep is a Tauri v2 desktop app (Rust backend + React/TypeScript frontend) for managing AI coding assistant sessions, terminals, git workflows, and usage tracking.
 
+## This fork (Sheppi)
+This is Rob's fork of `stumptowndoug/shep` (`oh-meh/shep`; upstream remote wired). Rob has
+tried Ghostty, Zentty, and other terminal apps/workspaces and none fit his usage, so he is
+building his own on top of shep's base rather than starting from scratch.
+
+Fork rules:
+- Keep customizations as a thin patch set — small, isolated commits on top of `main`.
+- Sync from upstream at release tags, not every commit (upstream moves fast).
+- Do not rebrand names/strings/assets while still tracking upstream — it poisons every merge.
+- Auto-update stays disabled (stubbed `checkForUpdate`, `createUpdaterArtifacts: false`):
+  the configured endpoint and signing key belong to upstream, so an update would replace
+  this build. The updater plugin must stay registered in Rust — its config schema requires
+  `endpoints`/`pubkey` and removing the config panics at startup.
+- Fixes that benefit upstream go up as PRs from clean branches off `upstream/main`.
+
+Project state and session history live in `~/ai-knowledge-rob/projects/sheppi/`, not here.
+
 ## Tech Stack
 - **Frontend**: React 19, TypeScript, Zustand (state management), xterm.js (terminal)
 - **Backend**: Rust / Tauri v2
