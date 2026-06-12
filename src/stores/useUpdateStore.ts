@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { getErrorMessage } from "../lib/errors";
 
@@ -34,33 +34,15 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
   _update: null,
 
   checkForUpdate: async () => {
-    set({ status: "checking", error: null });
-    try {
-      const update = await check();
-      if (update) {
-        set({
-          status: "available",
-          availableVersion: update.version,
-          releaseNotesUrl: `https://github.com/stumptowndoug/shep/releases/tag/v${update.version}`,
-          _update: update,
-          hasChecked: true,
-        });
-      } else {
-        set({
-          status: "idle",
-          availableVersion: null,
-          releaseNotesUrl: null,
-          _update: null,
-          hasChecked: true,
-        });
-      }
-    } catch (e) {
-      set({
-        status: "error",
-        error: getErrorMessage(e),
-        hasChecked: true,
-      });
-    }
+    // Fork: auto-update disabled — the upstream endpoint and signing key
+    // belong to stumptowndoug/shep, so an update would replace this build.
+    set({
+      status: "idle",
+      availableVersion: null,
+      releaseNotesUrl: null,
+      _update: null,
+      hasChecked: true,
+    });
   },
 
   downloadAndInstall: async () => {
